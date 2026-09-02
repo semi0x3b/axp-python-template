@@ -8,6 +8,7 @@
   "author_name": "semi",
   "author_email": "you@example.com",
   "python_version": "3.13",
+  "registry": ["ocir", "ecr"],
   "output_parent": ".",
   "_copy_without_render": [
     ".github/workflows/sync-main-to-branches.yml",
@@ -24,6 +25,7 @@
     "author_name": "작성자 이름 [엔터로 기본값]",
     "author_email": "작성자 이메일 [엔터로 기본값]",
     "python_version": "Python 버전 [엔터로 기본값]",
+    "registry": "컨테이너 레지스트리 (ocir | ecr)",
     "output_parent": "생성 위치 상위 경로 (. = 현재 디렉터리)"
   }
 }

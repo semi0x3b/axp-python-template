@@ -24,7 +24,7 @@ help:
 	@echo ""
 	@echo "  --- bumpversion ---"
 	@echo "  make bump[-minor|-major]           # 루트 버전 (pyproject + APP_VERSION)"
-	@echo "  make bump-j[-minor|-major]         # job 서비스 버전"
+	@echo "  make bump-svc SVC=job [PART=minor] # 서비스 버전 (SVC: {{cookiecutter.container_prefix}}|backoffice|job)"
 	@echo "  (옵션) DIRTY=1 --allow-dirty, DRY=1 --dry-run --verbose"
 	@echo ""
 	@echo "  --- Job ---"
@@ -76,7 +76,7 @@ job-list:
 
 # ---------------- bumpversion ----------------
 # 서비스별 cfg 를 나눠 배포 이미지마다 독립 버전을 매긴다.
-# 새 서비스 추가 시 .bumpversion.{서비스}.cfg + version.py + 타겟을 함께 만든다.
+# 새 서비스 추가 시 .bumpversion.{서비스}.cfg + app/domain/{서비스}/version.py 를 함께 만든다.
 .PHONY: bump bump-minor bump-major
 bump:
 	bumpversion $(BUMP_FLAGS) patch
@@ -85,10 +85,8 @@ bump-minor:
 bump-major:
 	bumpversion $(BUMP_FLAGS) major
 
-.PHONY: bump-j bump-j-minor bump-j-major
-bump-j:
-	bumpversion $(BUMP_FLAGS) --config-file .bumpversion.job.cfg patch
-bump-j-minor:
-	bumpversion $(BUMP_FLAGS) --config-file .bumpversion.job.cfg minor
-bump-j-major:
-	bumpversion $(BUMP_FLAGS) --config-file .bumpversion.job.cfg major
+# make bump-svc SVC=job [PART=minor|major]  → .bumpversion.$(SVC).cfg 사용
+.PHONY: bump-svc
+bump-svc:
+	@test -n "$(SVC)" || { echo "SVC=<서비스명> 이 필요합니다 (예: make bump-svc SVC=job)"; exit 1; }
+	bumpversion $(BUMP_FLAGS) --config-file .bumpversion.$(SVC).cfg $(or $(PART),patch)

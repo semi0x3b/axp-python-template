@@ -13,7 +13,7 @@ make job-run NAME=ping       # Job 1회 수동 실행
 make job-list                # 등록된 Job 목록
 
 make bump[-minor|-major]     # 루트 버전 (pyproject + APP_VERSION)
-make bump-j[-minor|-major]   # job 서비스 버전
+make bump-svc SVC=job [PART=minor|major]   # 서비스 버전 (SVC: {{cookiecutter.container_prefix}}|backoffice|job)
 #   DIRTY=1 → --allow-dirty, DRY=1 → --dry-run --verbose
 ```
 

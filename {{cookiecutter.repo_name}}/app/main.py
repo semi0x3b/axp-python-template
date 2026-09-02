@@ -27,7 +27,7 @@ async def lifespan(app: FastAPI):
     configure_logger()
 
     # Redis 초기화 (메인)
-    AsyncRedisClient.init(
+    await AsyncRedisClient.init(
         name=settings.REDIS_MAIN_NAME,
         url=settings.redis_url,
         password=settings.redis_password_or_none,
@@ -35,7 +35,7 @@ async def lifespan(app: FastAPI):
     logger.info("redis_initialized", name=settings.REDIS_MAIN_NAME)
 
     # Redis 초기화 (채팅/알림 전용 — 같은 서버, DB 분리)
-    AsyncRedisClient.init(
+    await AsyncRedisClient.init(
         name=settings.REDIS_CHAT_NAME,
         url=settings.redis_chat_url,
         password=settings.redis_password_or_none,

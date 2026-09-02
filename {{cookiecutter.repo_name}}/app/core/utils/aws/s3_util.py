@@ -4,12 +4,19 @@
 """
 
 import json
+from functools import lru_cache
 from typing import Any, Dict, Optional, Union
 
 import aioboto3
 import structlog
 
 logger = structlog.get_logger()
+
+
+@lru_cache(maxsize=1)
+def _shared_session() -> aioboto3.Session:
+    """aioboto3 Session 은 프로세스에서 하나만 만든다 (인스턴스마다 생성 금지)."""
+    return aioboto3.Session()
 
 
 class AsyncS3Client:
@@ -42,7 +49,7 @@ class AsyncS3Client:
         """
         self.bucket_name = bucket_name
         self.region_name = region_name
-        self._session = aioboto3.Session()
+        self._session = _shared_session()
 
     async def get_object(self, s3_key: str) -> Optional[bytes]:
         """S3에서 객체 읽기.

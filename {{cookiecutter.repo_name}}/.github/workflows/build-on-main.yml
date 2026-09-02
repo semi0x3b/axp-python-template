@@ -6,12 +6,15 @@ name: Build and Push (prod)
 #          (ArgoCD picks up the gitops change and deploys)
 #
 # Project-specific knobs (all in the env block below):
-#   REGISTRY / OCI_NAMESPACE       container registry (default OCIR)
+#   REGISTRY_TYPE                  ocir | ecr (set by the cookiecutter "registry" option)
+#   REGISTRY / OCI_NAMESPACE       OCIR only
+#   AWS_REGION                     ECR only (repositories are created on demand)
 #   SERVICES                       services to build (same values as APP_SERVICE)
 #   GITOPS_*                       gitops repo and overlay path pattern
 #
 # Required secrets:
-#   REGISTRY_USERNAME / REGISTRY_PASSWORD   registry login (OCIR: "<namespace>/<user>" / auth token)
+#   ocir: REGISTRY_USERNAME / REGISTRY_PASSWORD   ("<namespace>/<user>" / auth token)
+#   ecr:  AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY (ecr:* on the project repositories)
 #   GITOPS_ACCESS_TOKEN                     PAT with push access to the gitops repo
 #   SLACK_BOT_TOKEN (optional)              bot token with chat:write; skipped when unset
 #
@@ -36,10 +39,13 @@ permissions:
 env:
   PROJECT: {{cookiecutter.container_prefix}}
   SERVICES: "{{cookiecutter.container_prefix}} backoffice job"
+  REGISTRY_TYPE: {{cookiecutter.registry}}
 {% raw %}
+  # --- ocir: <region-key>.ocir.io/<tenancy-namespace>/<project>-<service>
   REGISTRY: icn.ocir.io
-  # OCIR: <region-key>.ocir.io/<tenancy-namespace>/<project>-<service>
   OCI_NAMESPACE: <tenancy-namespace>
+  # --- ecr: <account>.dkr.ecr.<region>.amazonaws.com/<project>-<service>
+  AWS_REGION: ap-northeast-2
   GITOPS_REPO: <org>/<gitops-repo>
   GITOPS_BRANCH: main
   # {svc} 가 서비스명으로 치환된다
@@ -89,13 +95,45 @@ jobs:
           echo "targets=${TARGETS# }" >> "$GITHUB_OUTPUT"
           echo ">>> base=$BUILD_BASE targets=[${TARGETS# }]"
 
-      - name: Login to registry
-        if: steps.detect.outputs.build_base == 'true' || steps.detect.outputs.targets != ''
+      - name: Login to registry (OCIR)
+        if: env.REGISTRY_TYPE == 'ocir' && (steps.detect.outputs.build_base == 'true' || steps.detect.outputs.targets != '')
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ secrets.REGISTRY_USERNAME }}
           password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      - name: Configure AWS credentials (ECR)
+        if: env.REGISTRY_TYPE == 'ecr' && (steps.detect.outputs.build_base == 'true' || steps.detect.outputs.targets != '')
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ${{ env.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+      - name: Login to registry (ECR)
+        id: ecr
+        if: env.REGISTRY_TYPE == 'ecr' && (steps.detect.outputs.build_base == 'true' || steps.detect.outputs.targets != '')
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # 이후 단계는 IMAGE_PREFIX 만 본다: ocir → REGISTRY/OCI_NAMESPACE, ecr → 계정 레지스트리 호스트
+      - name: Resolve image prefix
+        run: |
+          if [ "$REGISTRY_TYPE" = "ecr" ]; then
+            echo "IMAGE_PREFIX=${{ steps.ecr.outputs.registry }}" >> "$GITHUB_ENV"
+          else
+            echo "IMAGE_PREFIX=${REGISTRY}/${OCI_NAMESPACE}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Ensure ECR repositories exist
+        if: env.REGISTRY_TYPE == 'ecr' && (steps.detect.outputs.build_base == 'true' || steps.detect.outputs.targets != '')
+        run: |
+          NAMES="${PROJECT}-base"
+          for entry in ${{ steps.detect.outputs.targets }}; do NAMES="$NAMES ${PROJECT}-${entry%%=*}"; done
+          for name in $NAMES; do
+            aws ecr describe-repositories --repository-names "$name" >/dev/null 2>&1 \
+              || aws ecr create-repository --repository-name "$name" --image-scanning-configuration scanOnPush=true >/dev/null
+          done
 
       # base 는 의존성만 담는 이미지. pyproject/poetry.lock 이 바뀔 때만 다시 만든다.
       - name: Build and push base image
@@ -106,7 +144,7 @@ jobs:
           file: docker/Dockerfile.base
           platforms: linux/amd64
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.OCI_NAMESPACE }}/${{ env.PROJECT }}-base:latest
+          tags: ${{ env.IMAGE_PREFIX }}/${{ env.PROJECT }}-base:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -115,11 +153,11 @@ jobs:
         if: steps.detect.outputs.targets != ''
         continue-on-error: true
         run: |
-          BASE="${REGISTRY}/${OCI_NAMESPACE}/${PROJECT}-base:latest"
+          BASE="${IMAGE_PREFIX}/${PROJECT}-base:latest"
           OK=""; FAIL=""
           for entry in ${{ steps.detect.outputs.targets }}; do
             svc="${entry%%=*}"; ver="${entry#*=}"
-            image="${REGISTRY}/${OCI_NAMESPACE}/${PROJECT}-${svc}"
+            image="${IMAGE_PREFIX}/${PROJECT}-${svc}"
             echo "::group::build ${svc} ${ver}"
             if docker buildx build --platform linux/amd64 --push \
                  -f docker/Dockerfile \

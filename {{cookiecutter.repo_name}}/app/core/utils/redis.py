@@ -14,7 +14,7 @@ class AsyncRedisClient:
     _instances: Dict[str, Redis] = {}
 
     @classmethod
-    def init(
+    async def init(
         cls,
         name: str,
         url: str,
@@ -22,11 +22,17 @@ class AsyncRedisClient:
     ):
         """Redis 클라이언트를 URL 기반으로 초기화합니다.
 
+        같은 이름으로 다시 호출되면 기존 클라이언트(커넥션 풀)를 먼저 닫는다.
+
         Args:
             name: Redis 인스턴스 이름 (예: 'main', 'progress')
             url: Redis URL (예: redis://localhost:6379/0)
             password: Redis 비밀번호 (선택)
         """
+        previous = cls._instances.pop(name, None)
+        if previous is not None:
+            await previous.aclose()
+
         cls._instances[name] = Redis.from_url(
             url,
             password=password,
@@ -45,7 +51,7 @@ class AsyncRedisClient:
     async def close_all(cls):
         for redis in cls._instances.values():
             if redis is not None:
-                await redis.close()
+                await redis.aclose()
         cls._instances.clear()
 
 

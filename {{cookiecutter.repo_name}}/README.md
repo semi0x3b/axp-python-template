@@ -69,11 +69,11 @@ poetry run mypy app/ --ignore-missing-imports
 
 ```bash
 make bump[-minor|-major]     # 루트 버전 (pyproject + APP_VERSION)
-make bump-j[-minor|-major]   # job 서비스 버전
+make bump-svc SVC=job [PART=minor|major]   # 서비스 버전 (SVC: {{cookiecutter.container_prefix}}|backoffice|job)
 #   DIRTY=1 → --allow-dirty, DRY=1 → --dry-run --verbose
 ```
 
-새 서비스 추가 시 `.bumpversion.{서비스}.cfg` + `app/domain/{서비스}/version.py` + Makefile 타겟을 함께 만든다.
+새 서비스 추가 시 `.bumpversion.{서비스}.cfg` + `app/domain/{서비스}/version.py` 를 만들고 `build-on-main.yml` 의 `SERVICES` 에 추가한다.
 
 `main` 과 `develop` 양쪽에서 bump 되어 버전 줄이 충돌하는 문제는
 `.gitattributes` + `.github/merge-drivers/version-merge.py` 가 semver 높은 쪽을 골라 자동 해결한다.
@@ -81,13 +81,15 @@ make bump-j[-minor|-major]   # job 서비스 버전
 
 ## CI/CD
 
-`.github/workflows/build-on-main.yml` — `app/domain/<svc>/version.py` 가 바뀐 채 `main` 에 push 되면 그 서비스만 이미지 빌드 → OCIR 푸시 → gitops 레포의 prod overlay `newTag` 갱신 → Slack. ArgoCD 가 gitops 변경을 sync 하면 배포된다.
+`.github/workflows/ci.yml` — PR 과 main/develop push 마다 `black --check` + `pytest`. 테스트 DB 는 워크플로 service 컨테이너(postgres, 5433) 로 띄워 `tests/conftest.py` 기본값 그대로 돈다.
+
+`.github/workflows/build-on-main.yml` — `app/domain/<svc>/version.py` 가 바뀐 채 `main` 에 push 되면 그 서비스만 이미지 빌드 → 레지스트리 푸시 → gitops 레포의 prod overlay `newTag` 갱신 → Slack. ArgoCD 가 gitops 변경을 sync 하면 배포된다. 레지스트리는 생성 시 `registry` 옵션(ocir|ecr)으로 정해지며 워크플로 `REGISTRY_TYPE` 으로 바꿀 수 있다.
 
 ```
-make bump-j → main push → build-on-main → OCIR → gitops newTag → ArgoCD sync
+make bump-svc SVC=<svc> → main push → build-on-main → 레지스트리(OCIR|ECR) → gitops newTag → ArgoCD sync
 ```
 
-시크릿: `REGISTRY_USERNAME` / `REGISTRY_PASSWORD` / `GITOPS_ACCESS_TOKEN` / `SLACK_BOT_TOKEN`(선택). 레지스트리·gitops 경로는 워크플로 상단 `env` 블록에서 바꾼다.
+시크릿: OCIR 은 `REGISTRY_USERNAME` / `REGISTRY_PASSWORD`, ECR 은 `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`(ECR 리포지토리는 없으면 자동 생성). 공통 `GITOPS_ACCESS_TOKEN` / `SLACK_BOT_TOKEN`(선택). 레지스트리·gitops 경로는 워크플로 상단 `env` 블록에서 바꾼다.
 
 dev/prod 환경변수는 gitops 가 아니라 OCI Vault 에 있다 — 새 설정 키를 추가했으면 Vault 에도 넣는다.
 

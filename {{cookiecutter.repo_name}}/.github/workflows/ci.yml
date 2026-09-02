@@ -1,0 +1,63 @@
+# CI: lint (black --check) + pytest on every PR and push to main/develop.
+# Single job on purpose: GitHub Actions bills per job with minute rounding.
+# Postgres service mirrors docker/docker-compose.yml db-test (host port 5433)
+# so tests/conftest.py defaults work unchanged.
+# (NOTE: keep the first ~1KB of this file ASCII - see build-on-main.yml.)
+
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+permissions:
+  contents: read
+
+{% raw %}
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      db-test:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: {% endraw %}{{cookiecutter.db_name}}{% raw %}_test
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "{% endraw %}{{cookiecutter.python_version}}{% raw %}"
+
+      - name: Install poetry
+        run: pipx install poetry
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/pypoetry
+          key: poetry-${{ runner.os }}-${{ hashFiles('poetry.lock') }}
+
+      - name: Install dependencies
+        run: poetry install --no-interaction --no-root
+
+      - name: Lint
+        run: poetry run black --check .
+
+      - name: Test
+        run: poetry run pytest -q
+{% endraw %}

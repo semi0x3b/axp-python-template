@@ -6,6 +6,7 @@ Presigned URL 생성은 로컬 서명만 수행하므로 동기(boto3)로 충분
 
 import uuid
 from dataclasses import dataclass, field
+from functools import lru_cache
 
 import boto3
 from botocore.config import Config
@@ -13,6 +14,16 @@ from botocore.config import Config
 from app.core.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@lru_cache(maxsize=None)
+def _s3_client(region_name: str):
+    """boto3 클라이언트는 region 별로 프로세스에서 하나만 만든다 (요청마다 생성 금지)."""
+    return boto3.client(
+        "s3",
+        region_name=region_name,
+        config=Config(s3={"addressing_style": "virtual"}),
+    )
 
 
 @dataclass
@@ -24,11 +35,7 @@ class S3PresignedUtil:
     _client: any = field(init=False, repr=False)
 
     def __post_init__(self):
-        self._client = boto3.client(
-            "s3",
-            region_name=self.region_name,
-            config=Config(s3={"addressing_style": "virtual"}),
-        )
+        self._client = _s3_client(self.region_name)
 
     def generate_presigned_upload_url(
         self,
