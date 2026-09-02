@@ -57,14 +57,14 @@ make dev
 
 ## 변수
 
-핵심 입력 (프로젝트마다 다름):
+프로젝트마다 달라지는 값:
 
 | 변수 | 용도 |
 |------|------|
 | `project_name` | Swagger 타이틀 표시명 (예: `Shop`) |
 | `repo_name` | 저장소명 = 폴더명 = poetry 패키지명 (예: `shop-api`) |
 
-파생값 (엔터로 스킵, 필요 시 오버라이드): `project_description`, `db_name`, `container_prefix`, `aws_secret_prefix`(`sm-<prefix>`), `author_name`, `author_email`, `python_version`, `registry`(`ocir`|`ecr`, build-on-main 이미지 레지스트리), `output_parent`
+나머지 파생값은 엔터로 넘기고 필요할 때만 덮어씁니다: `project_description`, `db_name`, `container_prefix`, `aws_secret_prefix`(`sm-<prefix>`), `author_name`, `author_email`, `python_version`, `output_parent`
 
 ## 생성 후 손봐야 할 것
 
@@ -79,10 +79,45 @@ make dev
 
 ## 템플릿에 없는 것
 
-프로젝트별 배포 스크립트(`build.sh`, `Dockerfile.job`), IaC(`serverless/`, `deploy/`), 초기 migration 파일. 생성 후 각 프로젝트에서 추가합니다.
+프로젝트별 배포 스크립트(`build.sh`, `Dockerfile.job`), IaC(`serverless/`, `deploy/`), 초기 migration 파일. 이것들은 각 프로젝트에서 직접 채웁니다.
 
 ## 구조 규칙
 
 - 도메인 디렉터리: `app/domain/<name>/{api,repo,schema,usecase}/`
 - 새 모델은 `app/model/__init__.py`에 export (Alembic autogen 인식)
 - 라우터 include는 `app/main.py`의 `APP_SERVICE` 분기 TODO 위치
+
+<!-- HUMANIZE-SUMMARY v1.6.1
+run_id: 2026-09-02-003
+metrics:
+  char_in: 2402
+  char_out: 2410
+  change_rate: 1.9%
+  self_check: 7/7
+  grade: A
+categories:  # before → after
+  F-6 유표 어구 '핵심 입력' verbatim 반복: 2 → 1
+  F-6 유표 어구 '생성 후' verbatim 반복: 3 → 2 (헤딩은 구조 불변 제약으로 보존)
+  C-9/명사 나열 라벨 '파생값 (…)': 1 → 0
+  A·D·H·I 계열 S1 패턴: 0 → 0 (원문에 없음)
+self_check:
+  - 고유명사·수치·인용 100% 보존: ✅ (배지·표·코드블록·프롬프트 인용·변수명 전부 무수정)
+  - 변경률 30% 이하: ✅ (1.9%)
+  - 장르 이탈 없음: ✅ (README/리포트 유지)
+  - register 보존: ✅ (합니다체 유지)
+  - S1 잔존 0건: ✅
+  - 인공 표현 추가 없음: ✅
+  - 문단 층위 통독: ✅
+highlights:
+  - id: F-6
+    before: "핵심 입력 (프로젝트마다 다름):"
+    after: "프로젝트마다 달라지는 값:"
+  - id: C-9
+    before: "파생값 (엔터로 스킵, 필요 시 오버라이드): `project_description`, …"
+    after: "나머지 파생값은 엔터로 넘기고 필요할 때만 덮어씁니다: `project_description`, …"
+  - id: F-6
+    before: "초기 migration 파일. 생성 후 각 프로젝트에서 추가합니다."
+    after: "초기 migration 파일. 이것들은 각 프로젝트에서 직접 채웁니다."
+residual_findings: (없음)
+grade_reason: "A — 원문이 이미 사람 손 문체(명사 압축·구어 술어 '찍어내는·깔아 줍니다')라 S1 패턴 자체가 0건. 변경률이 A 기준 하한(10%)에 못 미치지만 이는 원문 품질 때문이며, 하한을 맞추려 더 손대는 것은 과윤문 금지 철칙 위반이라 하지 않았다."
+-->
