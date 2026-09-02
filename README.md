@@ -2,7 +2,7 @@
 
 ![Python](https://img.shields.io/badge/python-3.13-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-async-green) ![cookiecutter](https://img.shields.io/badge/cookiecutter-template-orange)
 
-FastAPI + SQLAlchemy 2.0 Async + PostgreSQL + Redis + Alembic 프로젝트를 찍어내는 cookiecutter 템플릿입니다. 실서비스 여러 개를 같은 구조로 운영하면서 반복되던 초기 세팅 — 인증, 감사 로그, 마이그레이션, 테스트 기반, CI, 코딩 컨벤션 문서까지 — 를 템플릿으로 굳혔습니다.
+FastAPI + SQLAlchemy 2.0 Async + PostgreSQL + Redis + Alembic 프로젝트를 찍어내는 cookiecutter 템플릿입니다. 새 API 프로젝트를 시작할 때마다 반복되는 초기 세팅(인증, 감사 로그, 마이그레이션, 테스트 기반, CI, 코딩 컨벤션 문서)을 한 번에 깔아 줍니다.
 
 ## Quick start
 
