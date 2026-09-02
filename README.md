@@ -1,4 +1,4 @@
-# axp-python-template
+# fastapi-service-template
 
 ![Python](https://img.shields.io/badge/python-3.13-blue) ![FastAPI](https://img.shields.io/badge/FastAPI-async-green) ![cookiecutter](https://img.shields.io/badge/cookiecutter-template-orange)
 
@@ -8,7 +8,7 @@ FastAPI + SQLAlchemy 2.0 Async + PostgreSQL + Redis + Alembic 프로젝트를 �
 
 ```bash
 pipx install cookiecutter
-cookiecutter gh:semi0x3b/axp-python-template
+cookiecutter gh:semi0x3b/fastapi-service-template
 ```
 
 핵심 입력은 두 개뿐입니다. 나머지는 자동 파생되니 엔터로 넘기면 됩니다.
