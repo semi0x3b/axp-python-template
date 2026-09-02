@@ -64,7 +64,7 @@ make dev
 | `project_name` | Swagger 타이틀 표시명 (예: `Shop`) |
 | `repo_name` | 저장소명 = 폴더명 = poetry 패키지명 (예: `shop-api`) |
 
-파생값 (엔터로 스킵, 필요 시 오버라이드): `project_description`, `db_name`, `container_prefix`, `aws_secret_prefix`(`sm-<prefix>`), `author_name`, `author_email`, `python_version`, `output_parent`
+파생값 (엔터로 스킵, 필요 시 오버라이드): `project_description`, `db_name`, `container_prefix`, `aws_secret_prefix`(`sm-<prefix>`), `author_name`, `author_email`, `python_version`, `registry`(`ocir`|`ecr`, build-on-main 이미지 레지스트리), `output_parent`
 
 ## 생성 후 손봐야 할 것
 
