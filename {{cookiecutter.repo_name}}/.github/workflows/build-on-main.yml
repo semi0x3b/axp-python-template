@@ -42,7 +42,7 @@ env:
   REGISTRY_TYPE: {{cookiecutter.registry}}
 {% raw %}
   # --- ocir: <region-key>.ocir.io/<tenancy-namespace>/<project>-<service>
-  REGISTRY: icn.ocir.io
+  REGISTRY: <your-registry>
   OCI_NAMESPACE: <tenancy-namespace>
   # --- ecr: <account>.dkr.ecr.<region>.amazonaws.com/<project>-<service>
   AWS_REGION: ap-northeast-2
