@@ -1,0 +1,141 @@
+name: Sync main → develop/migration
+
+# main 에 push 될 때마다 develop·migration 브랜치에 자동 머지한다.
+# - 대상 브랜치가 없으면 스킵.
+# - 버전 줄(bumpversion) 충돌은 머지 드라이버가 자동 해결한다.
+# - 그 외 충돌은 force 하지 않고, main 에서 딴 중간 브랜치로 sync PR 을 연다.
+#   PR 이 이미 열려 있으면 중복 생성·중복 알림을 하지 않는다(알림 반복 방지).
+#
+# 왜 main 을 head 로 쓰지 않는가:
+#   GitHub 웹 충돌 편집기는 해결 결과를 head 브랜치에 커밋한다. head 가 main 이면
+#   main 에 직접 push 가 필요한데 ruleset(pull_request)이 이를 막아 편집기가 아예
+#   비활성화된다. 그래서 보호되지 않은 중간 브랜치를 head 로 쓴다.
+#
+# 대상 브랜치는 matrix 가 아니라 단일 job 안의 loop 로 돈다 — Actions 는 job 단위
+# 분 올림 청구라 matrix 로 쪼개면 비용이 배수가 된다.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Merge main into develop/migration
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL: "#github-notification"
+          TARGETS: "develop migration"
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -u
+          post_slack() {
+            if [ -z "${SLACK_BOT_TOKEN:-}" ]; then echo "SLACK_BOT_TOKEN 없음 — 알림 스킵"; return 0; fi
+            curl -s -X POST https://slack.com/api/chat.postMessage \
+              -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+              -H 'Content-type: application/json; charset=utf-8' \
+              --data "$(jq -n --arg c "$SLACK_CHANNEL" --arg t "$1" '{channel:$c, text:$t}')" >/dev/null || true
+          }
+
+          git fetch origin --prune
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # 버전 줄 자동 해결 머지 드라이버 등록.
+          # .gitattributes 는 체크아웃된 브랜치(=TARGET)에서 읽히는데, TARGET 에 아직
+          # 그 파일이 없으면 드라이버가 동작하지 않는다. main 의 규칙을 버전 관리 밖인
+          # .git/info/attributes 에 넣어 TARGET 상태와 무관하게 적용되도록 한다.
+          chmod +x .github/merge-drivers/version-merge.py .github/scripts/classify-sync-conflicts.sh
+          git config merge.version-aware.name "version-aware merge"
+          git config merge.version-aware.driver "${GITHUB_WORKSPACE}/.github/merge-drivers/version-merge.py %O %A %B %L %P"
+          GIT_COMMON_DIR="$(git rev-parse --git-common-dir)"
+          mkdir -p "${GIT_COMMON_DIR}/info"
+          git show origin/main:.gitattributes 2>/dev/null \
+            | grep 'merge=version-aware' > "${GIT_COMMON_DIR}/info/attributes" || true
+
+          for TARGET in ${TARGETS}; do
+            echo "::group::main → ${TARGET}"
+
+            if ! git show-ref --verify --quiet "refs/remotes/origin/${TARGET}"; then
+              echo "브랜치 ${TARGET} 없음 — 스킵"; echo "::endgroup::"; continue
+            fi
+
+            git checkout -B "${TARGET}" "origin/${TARGET}"
+
+            if git merge --no-edit origin/main; then
+              if git push origin "${TARGET}"; then
+                echo "main → ${TARGET} 머지·push 성공"; echo "::endgroup::"; continue
+              fi
+              echo "::warning::main→${TARGET} push 실패"
+              post_slack ":warning: [sync] ${REPO}: main → \`${TARGET}\` push 실패(브랜치 보호 가능성) — ${RUN_URL}"
+              echo "::endgroup::"; continue
+            fi
+
+            # --- 충돌 ---
+            echo "::warning::main→${TARGET} 자동 머지 충돌"
+            git diff --name-only --diff-filter=U > /tmp/sync-conflicts.txt
+            git merge --abort || true
+
+            SYNC_BRANCH="sync/main-to-${TARGET}"
+
+            # 이미 열린 sync PR 이 있으면 중복 생성·중복 알림 하지 않는다.
+            # (사람이 해당 브랜치에서 해결 중일 수 있으므로 브랜치도 건드리지 않는다)
+            EXISTING="$(gh pr list --base "${TARGET}" --head "${SYNC_BRANCH}" --state open --json number --jq '.[0].number // empty')"
+            if [ -n "${EXISTING}" ]; then
+              echo "이미 sync PR #${EXISTING} 이 열려 있음 — 알림 생략"; echo "::endgroup::"; continue
+            fi
+
+            REPORT="$(.github/scripts/classify-sync-conflicts.sh "${TARGET}" /tmp/sync-conflicts.txt)"
+
+            # 중간 브랜치: main 의 사본. 보호되지 않으므로 웹 충돌 편집기로 해결할 수 있다.
+            git checkout -B "${SYNC_BRANCH}" origin/main
+            git push -f origin "${SYNC_BRANCH}"
+
+            PR_URL="$(gh pr create \
+              --base "${TARGET}" \
+              --head "${SYNC_BRANCH}" \
+              --title "🔀 SYNC: main → ${TARGET} (충돌 수동 해결 필요)" \
+              --body "$(printf '%s\n' \
+                'main → `'"${TARGET}"'` 자동 동기화가 충돌해 PR 로 대신 엽니다.' \
+                '' \
+                '이 PR 의 head `'"${SYNC_BRANCH}"'` 는 main 의 사본입니다. main 을 head 로 쓰면' \
+                'GitHub 웹 충돌 편집기가 main 에 직접 커밋하려다 브랜치 보호에 막혀 비활성화되므로,' \
+                '보호되지 않은 중간 브랜치를 대신 사용합니다.' \
+                '' \
+                "${REPORT}" \
+                '### 해결 방법' \
+                '' \
+                '**웹에서**: 위 "Resolve conflicts" 버튼으로 바로 해결할 수 있습니다.' \
+                '' \
+                '**로컬에서**:' \
+                '```bash' \
+                "git fetch origin && git checkout ${SYNC_BRANCH}" \
+                "git merge origin/${TARGET}   # 충돌 해결 후 커밋·push" \
+                '```' \
+                '' \
+                "실패한 실행: ${RUN_URL}" \
+                '' \
+                '> 이 PR 이 열려 있는 동안에는 같은 Slack 알림을 다시 보내지 않습니다.')" \
+              2>&1)" || PR_URL=""
+
+            if [ -n "${PR_URL}" ]; then
+              post_slack ":warning: [sync] ${REPO}: main → \`${TARGET}\` 자동 머지 충돌 — 수동 해결용 PR 생성됨 ${PR_URL}"
+            else
+              post_slack ":warning: [sync] ${REPO}: main → \`${TARGET}\` 자동 머지 충돌 — PR 생성도 실패했습니다. 수동 머지 필요 ${RUN_URL}"
+            fi
+            echo "::endgroup::"
+          done

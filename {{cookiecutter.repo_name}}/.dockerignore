@@ -1,0 +1,51 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docker
+docker/docker-compose.yml
+docker/docker-compose.override.yml
+docker/build*.sh
+docker/.base-version
+
+# Docs & Config
+docs/
+http/
+.claude/
+.github/
+.bumpversion*.cfg
+.pre-commit-config.yaml
+README.md
+*.md
+
+# Tests
+tests/
+
+# Logs
+logs/
+*.log

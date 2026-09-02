@@ -1,0 +1,25 @@
+# 공통 Base Image — 의존성만 포함, 소스코드 없음
+FROM --platform=$TARGETPLATFORM python:{{cookiecutter.python_version}}-slim
+
+ARG TARGETPLATFORM
+ARG POETRY_VERSION=2.1.3
+
+# 필수 패키지
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends build-essential curl \
+ && rm -rf /var/lib/apt/lists/*
+
+# pip/poetry 설치
+RUN pip install --upgrade pip \
+ && pip install --no-cache-dir "poetry==${POETRY_VERSION}"
+
+WORKDIR /app
+
+# 의존성 파일만 복사 (캐시 레이어 활용)
+COPY pyproject.toml poetry.lock ./
+
+# 런타임 의존성만 설치 (dev 제외)
+RUN poetry config virtualenvs.create false \
+ && poetry install --no-interaction --no-ansi --no-root --only main
+
+CMD ["python", "-V"]

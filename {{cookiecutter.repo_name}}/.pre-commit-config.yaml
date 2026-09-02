@@ -1,0 +1,27 @@
+# 커밋 시 black 자동 포맷 + 변경분 단위 테스트, push 시 단위 테스트 전체.
+# migration 브랜치는 모델·마이그레이션만 오가므로 전부 skip.
+repos:
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: sh -c 'export PATH="$HOME/.pyenv/shims:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; BR=$(git rev-parse --abbrev-ref HEAD); case "$BR" in *migration*) exit 0 ;; esac; poetry run black --line-length=200 "$@"' --
+        language: system
+        types: [python]
+        stages: [pre-commit]
+
+      - id: pytest-changed
+        name: pytest (changed)
+        entry: sh -c 'export PATH="$HOME/.pyenv/shims:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; BR=$(git rev-parse --abbrev-ref HEAD); case "$BR" in *migration*) exit 0 ;; esac; CHANGED=$(git diff --cached --name-only --diff-filter=ACMR -- "app/" | grep "\.py$" || true); if [ -z "$CHANGED" ]; then exit 0; fi; poetry run pytest tests/unit/ -q --no-header -x 2>&1 | tail -5'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: pytest
+        name: pytest (unit)
+        entry: sh -c 'export PATH="$HOME/.pyenv/shims:$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:$PATH"; BR=$(git rev-parse --abbrev-ref HEAD); case "$BR" in *migration*) exit 0 ;; esac; poetry run pytest tests/unit/ -q --no-header'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

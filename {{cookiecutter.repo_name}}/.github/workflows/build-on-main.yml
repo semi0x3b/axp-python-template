@@ -1,0 +1,209 @@
+name: Build and Push (prod)
+
+# Trigger: app/domain/<svc>/version.py bumped on main.
+# Flow:    bump(version.py) -> main push -> build changed services only
+#          -> push to registry -> update gitops image tag -> Slack
+#          (ArgoCD picks up the gitops change and deploys)
+#
+# Project-specific knobs (all in the env block below):
+#   REGISTRY / OCI_NAMESPACE       container registry (default OCIR)
+#   SERVICES                       services to build (same values as APP_SERVICE)
+#   GITOPS_*                       gitops repo and overlay path pattern
+#
+# Required secrets:
+#   REGISTRY_USERNAME / REGISTRY_PASSWORD   registry login (OCIR: "<namespace>/<user>" / auth token)
+#   GITOPS_ACCESS_TOKEN                     PAT with push access to the gitops repo
+#   SLACK_BOT_TOKEN (optional)              bot token with chat:write; skipped when unset
+#
+# Single job on purpose: GitHub Actions bills per job with minute rounding,
+# so a matrix would multiply the cost.
+# (NOTE: keep the first ~1KB of this file ASCII - cookiecutter's binary sniffing
+#  chokes on multibyte text near the 1024-byte boundary and skips rendering.)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - app/domain/*/version.py
+      - pyproject.toml
+      - poetry.lock
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  PROJECT: {{cookiecutter.container_prefix}}
+  SERVICES: "{{cookiecutter.container_prefix}} backoffice job"
+{% raw %}
+  REGISTRY: icn.ocir.io
+  # OCIR: <region-key>.ocir.io/<tenancy-namespace>/<project>-<service>
+  OCI_NAMESPACE: <tenancy-namespace>
+  GITOPS_REPO: <org>/<gitops-repo>
+  GITOPS_BRANCH: main
+  # {svc} 가 서비스명으로 치환된다
+  GITOPS_OVERLAY_PATTERN: "oci/ops/{project}/{project}-{svc}/kustomize/overlay/prod/kustomization.yaml"
+  SLACK_CHANNEL: "#release"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Detect version-bumped services
+        id: detect
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            CHANGED="$(git ls-files 'app/domain/*/version.py' pyproject.toml)"   # 수동 실행: 전체
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              CHANGED="$(git diff --name-only HEAD^ HEAD || true)"
+            else
+              CHANGED="$(git diff --name-only "$BEFORE" "${{ github.sha }}" || true)"
+            fi
+          fi
+          echo "----- changed -----"; echo "$CHANGED"; echo "-------------------"
+
+          BUILD_BASE=false
+          echo "$CHANGED" | grep -qE '^(pyproject\.toml|poetry\.lock|docker/Dockerfile\.base)$' && BUILD_BASE=true || true
+
+          # version.py 가 바뀐 서비스만 "svc=버전" 목록으로 모은다
+          TARGETS=""
+          for svc in $SERVICES; do
+            if echo "$CHANGED" | grep -qE "^app/domain/${svc}/version\.py$"; then
+              v="$(sed -n 's/^__version__.*=.*"\([^"]*\)".*/\1/p' "app/domain/${svc}/version.py" | head -n1)"
+              TARGETS="${TARGETS} ${svc}=${v}"
+            fi
+          done
+
+          echo "build_base=$BUILD_BASE" >> "$GITHUB_OUTPUT"
+          echo "targets=${TARGETS# }" >> "$GITHUB_OUTPUT"
+          echo ">>> base=$BUILD_BASE targets=[${TARGETS# }]"
+
+      - name: Login to registry
+        if: steps.detect.outputs.build_base == 'true' || steps.detect.outputs.targets != ''
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ secrets.REGISTRY_USERNAME }}
+          password: ${{ secrets.REGISTRY_PASSWORD }}
+
+      # base 는 의존성만 담는 이미지. pyproject/poetry.lock 이 바뀔 때만 다시 만든다.
+      - name: Build and push base image
+        if: steps.detect.outputs.build_base == 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile.base
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.OCI_NAMESPACE }}/${{ env.PROJECT }}-base:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build and push services
+        id: build
+        if: steps.detect.outputs.targets != ''
+        continue-on-error: true
+        run: |
+          BASE="${REGISTRY}/${OCI_NAMESPACE}/${PROJECT}-base:latest"
+          OK=""; FAIL=""
+          for entry in ${{ steps.detect.outputs.targets }}; do
+            svc="${entry%%=*}"; ver="${entry#*=}"
+            image="${REGISTRY}/${OCI_NAMESPACE}/${PROJECT}-${svc}"
+            echo "::group::build ${svc} ${ver}"
+            if docker buildx build --platform linux/amd64 --push \
+                 -f docker/Dockerfile \
+                 --build-arg BASE_IMAGE="$BASE" \
+                 --build-arg APP_SERVICE="$svc" \
+                 --build-arg APP_VERSION="$ver" \
+                 -t "${image}:${ver}" -t "${image}:latest" . ; then
+              OK="${OK} ${entry}"
+            else
+              FAIL="${FAIL} ${entry}"
+            fi
+            echo "::endgroup::"
+          done
+          echo "ok=${OK# }" >> "$GITHUB_OUTPUT"
+          echo "fail=${FAIL# }" >> "$GITHUB_OUTPUT"
+          [ -z "$FAIL" ]
+
+      - name: Update gitops image tags
+        id: gitops
+        if: steps.build.outputs.ok != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITOPS_ACCESS_TOKEN }}
+        run: |
+          git clone --depth 1 -b "$GITOPS_BRANCH" \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITOPS_REPO}.git" /tmp/gitops
+
+          UPDATED=""
+          for entry in ${{ steps.build.outputs.ok }}; do
+            svc="${entry%%=*}"; ver="${entry#*=}"
+            overlay="${GITOPS_OVERLAY_PATTERN//\{project\}/$PROJECT}"
+            overlay="/tmp/gitops/${overlay//\{svc\}/$svc}"
+            if [ ! -f "$overlay" ]; then
+              echo "::warning::overlay 없음: $overlay"; continue
+            fi
+            sed -i "s/newTag: .*/newTag: \"${ver}\"/" "$overlay"
+            UPDATED="${UPDATED} ${svc}-${ver}"
+          done
+
+          cd /tmp/gitops
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && echo "변경 없음" && exit 0
+          git commit -m "🚀 DEPLOY: ${PROJECT}${UPDATED}"
+          git push origin "$GITOPS_BRANCH"
+
+      # 빌드 이전 단계(로그인·base)에서 죽어도 알림이 나가도록 always() 로 건다.
+      - name: Slack notification
+        if: always() && (steps.detect.outputs.targets != '' || failure())
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          OK: ${{ steps.build.outputs.ok }}
+          FAIL: ${{ steps.build.outputs.fail }}
+          GITOPS_OUTCOME: ${{ steps.gitops.outcome }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ]; then echo "SLACK_BOT_TOKEN 미설정 — 알림 스킵"; exit 0; fi
+          NL=$'\n'
+          DATE="$(TZ=Asia/Seoul date +%Y-%m-%d)"
+
+          if [ -n "$FAIL" ] || [ "$GITOPS_OUTCOME" = "failure" ] || { [ -z "$OK" ] && [ "$JOB_STATUS" = "failure" ]; }; then
+            TEXT=":x: [${DATE}] ${PROJECT} 빌드/배포 실패${NL}실패: ${FAIL:-(빌드 이전 단계)} / gitops: ${GITOPS_OUTCOME}${NL}<${RUN_URL}|워크플로 링크>"
+          else
+            # 커밋에 연결된 PR 제목·링크 → 릴리즈 노트 대용. 없으면 커밋 링크
+            PR_JSON="$(gh api "repos/${GITHUB_REPOSITORY}/commits/${GITHUB_SHA}/pulls" 2>/dev/null | jq '.[0] // {}')"
+            PR_URL="$(printf '%s' "$PR_JSON" | jq -r '.html_url // ""')"
+            if [ -n "$PR_URL" ]; then
+              REF="<${PR_URL}|$(printf '%s' "$PR_JSON" | jq -r '.title')>"
+            else
+              REF="<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}|$(git log -1 --format=%s)>"
+            fi
+            VERS=""
+            for entry in $OK; do VERS="${VERS}${NL}\`${entry%%=*} : ${entry#*=}\`"; done
+            MIG=""
+            git show --name-only --format= "$GITHUB_SHA" | grep -q '^migrations/versions/' && MIG="${NL}DB 마이그레이션 필요" || true
+            TEXT="[${DATE}] ${PROJECT} 배포준비완료${VERS}${NL}${REF}${MIG}"
+          fi
+
+          printf '%s\n' "$TEXT"
+          curl -s -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer ${SLACK_BOT_TOKEN}" \
+            -H 'Content-type: application/json; charset=utf-8' \
+            --data "$(jq -n --arg c "$SLACK_CHANNEL" --arg t "$TEXT" '{channel:$c, text:$t}')" | jq -r '.ok, .error // empty'
+{% endraw %}

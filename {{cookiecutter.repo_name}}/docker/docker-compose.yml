@@ -1,0 +1,117 @@
+services:
+  # ── PostgreSQL ──
+  db:
+    image: postgres:16-alpine
+    container_name: {{cookiecutter.container_prefix}}_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{cookiecutter.db_name}}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── PostgreSQL (테스트 전용) ──
+  db-test:
+    image: postgres:16-alpine
+    container_name: {{cookiecutter.container_prefix}}_db_test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: {{cookiecutter.db_name}}_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──
+  redis:
+    image: redis:7-alpine
+    container_name: {{cookiecutter.container_prefix}}_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Main API ──
+  {{cookiecutter.container_prefix}}:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        APP_SERVICE: {{cookiecutter.container_prefix}}
+    image: {{cookiecutter.container_prefix}}-api
+    container_name: {{cookiecutter.container_prefix}}_api
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../.env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      APP_SERVICE: {{cookiecutter.container_prefix}}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── Backoffice API ──
+  backoffice:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        APP_SERVICE: backoffice
+    image: {{cookiecutter.container_prefix}}-backoffice
+    container_name: {{cookiecutter.container_prefix}}_backoffice
+    ports:
+      - "8001:8000"
+    env_file:
+      - ../.env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      APP_SERVICE: backoffice
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # ── DB Migration ──
+  migration:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: {{cookiecutter.container_prefix}}_migration
+    env_file:
+      - ../.env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["sh", "-c", "alembic upgrade head"]
+    restart: "no"
+
+volumes:
+  postgres_data:
+  redis_data:

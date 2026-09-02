@@ -1,0 +1,29 @@
+{
+  "project_name": "My",
+  "repo_name": "{{ cookiecutter.project_name.lower().replace(' ', '-') }}-api",
+  "project_description": "{{ cookiecutter.project_name }} 백엔드 API",
+  "db_name": "{{ cookiecutter.project_name.lower().replace(' ', '_') }}",
+  "container_prefix": "{{ cookiecutter.db_name }}",
+  "aws_secret_prefix": "sm-{{ cookiecutter.container_prefix }}",
+  "author_name": "semi",
+  "author_email": "you@example.com",
+  "python_version": "3.13",
+  "output_parent": ".",
+  "_copy_without_render": [
+    ".github/workflows/sync-main-to-branches.yml",
+    ".github/merge-drivers/*",
+    "http/*"
+  ],
+  "__prompts__": {
+    "project_name": "프로젝트 표시명 ('API' 제외, 예: ATS)",
+    "repo_name": "GitHub 저장소명 / poetry 패키지명 / 폴더명 (kebab-case)",
+    "project_description": "프로젝트 설명 [엔터로 기본값]",
+    "db_name": "PostgreSQL DB 이름 [엔터로 기본값]",
+    "container_prefix": "Docker 컨테이너 prefix [엔터로 기본값]",
+    "aws_secret_prefix": "AWS Secrets Manager prefix [엔터로 기본값]",
+    "author_name": "작성자 이름 [엔터로 기본값]",
+    "author_email": "작성자 이메일 [엔터로 기본값]",
+    "python_version": "Python 버전 [엔터로 기본값]",
+    "output_parent": "생성 위치 상위 경로 (. = 현재 디렉터리)"
+  }
+}
