@@ -15,7 +15,7 @@
     "http/*"
   ],
   "__prompts__": {
-    "project_name": "프로젝트 표시명 ('API' 제외, 예: ATS)",
+    "project_name": "프로젝트 표시명 ('API' 제외, 예: Shop)",
     "repo_name": "GitHub 저장소명 / poetry 패키지명 / 폴더명 (kebab-case)",
     "project_description": "프로젝트 설명 [엔터로 기본값]",
     "db_name": "PostgreSQL DB 이름 [엔터로 기본값]",
